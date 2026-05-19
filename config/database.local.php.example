@@ -1,0 +1,10 @@
+<?php
+/**
+ * Local database overrides — copy this file to database.local.php and edit.
+ * database.local.php is not committed; use it when root password differs per PC.
+ */
+define('DB_HOST', '127.0.0.1');
+define('DB_PORT', '3306');
+define('DB_NAME', 'book_reservation');
+define('DB_USER', 'root');
+define('DB_PASS', '1234');
