@@ -6,14 +6,55 @@
 
 require_once '../config/database.php';
 require_once '../config/auth.php';
+require_once '../config/uploads.php';
 
 // Require admin access
 requireAdmin();
+
+/**
+ * After POST, redirect (PRG) so Back does not resubmit the form.
+ */
+function finishAdminPost(string $message, string $type, ?int $reopenEditId = null): void
+{
+    $_SESSION['admin_flash'] = ['message' => $message, 'type' => $type];
+
+    if ($type === 'error' && $reopenEditId === null && isset($_POST['save_book']) && (int) ($_POST['edit_id'] ?? 0) === 0) {
+        $_SESSION['admin_show_add_form'] = true;
+    }
+
+    $query = [];
+    if (!empty($_POST['show_archived'])) {
+        $query['show_archived'] = 1;
+    }
+    if ($type === 'error' && ($reopenEditId ?? 0) > 0) {
+        $query['action'] = 'edit';
+        $query['id'] = $reopenEditId;
+    }
+
+    $target = url('admin/dashboard.php');
+    if ($query !== []) {
+        $target .= '?' . http_build_query($query);
+    }
+
+    header('Location: ' . $target, true, 303);
+    exit();
+}
 
 $action = $_GET['action'] ?? '';
 $book_id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 $message = '';
 $message_type = '';
+$show_add_form = false;
+
+if (!empty($_SESSION['admin_flash'])) {
+    $message = $_SESSION['admin_flash']['message'];
+    $message_type = $_SESSION['admin_flash']['type'];
+    unset($_SESSION['admin_flash']);
+}
+if (!empty($_SESSION['admin_show_add_form'])) {
+    $show_add_form = true;
+    unset($_SESSION['admin_show_add_form']);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     requireCsrf();
@@ -29,17 +70,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $edit_id = (int) ($_POST['edit_id'] ?? 0);
 
         if ($title === '' || $author === '' || $category_id <= 0) {
-            $message = 'Title, author, and category are required.';
-            $message_type = 'error';
+            finishAdminPost('Title, author, and category are required.', 'error', $edit_id > 0 ? $edit_id : null);
         } elseif ($total_copies < 1) {
-            $message = 'Total copies must be at least 1.';
-            $message_type = 'error';
+            finishAdminPost('Total copies must be at least 1.', 'error', $edit_id > 0 ? $edit_id : null);
         } elseif ($available_copies < 0 || $available_copies > $total_copies) {
-            $message = 'Available copies must be between 0 and total copies.';
-            $message_type = 'error';
+            finishAdminPost('Available copies must be between 0 and total copies.', 'error', $edit_id > 0 ? $edit_id : null);
         } else {
             try {
+                $old_image = null;
                 if ($edit_id > 0) {
+                    $stmt = $pdo->prepare('SELECT image_url FROM books WHERE id = ?');
+                    $stmt->execute([$edit_id]);
+                    $old_image = $stmt->fetchColumn() ?: null;
+
                     $stmt = $pdo->prepare('
                         UPDATE books
                         SET title=?, author=?, isbn=?, category_id=?, description=?,
@@ -48,6 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ');
                     $stmt->execute([$title, $author, $isbn, $category_id, $description,
                         $total_copies, $available_copies, $edit_id]);
+                    $saved_id = $edit_id;
                     $message = 'Book updated successfully!';
                 } else {
                     $stmt = $pdo->prepare('
@@ -56,13 +100,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ');
                     $stmt->execute([$title, $author, $isbn, $category_id, $description,
                         $total_copies, $available_copies]);
+                    $saved_id = (int) $pdo->lastInsertId();
                     $message = 'Book added successfully!';
                 }
-                $message_type = 'success';
+
+                if (!empty($_POST['remove_thumbnail']) && $old_image !== null) {
+                    deleteBookThumbnailFile($old_image);
+                    updateBookImageUrl($pdo, $saved_id, null);
+                    $old_image = null;
+                }
+
+                if (!empty($_FILES['thumbnail']['name'])) {
+                    $upload = saveBookThumbnail($saved_id, $_FILES['thumbnail'], $old_image);
+                    if ($upload['ok']) {
+                        updateBookImageUrl($pdo, $saved_id, $upload['path']);
+                    } else {
+                        $message .= ' ' . $upload['error'];
+                        $message_type = 'error';
+                    }
+                }
+
+                if (($message_type ?? '') === 'error') {
+                    finishAdminPost($message, 'error', $edit_id > 0 ? $edit_id : null);
+                }
+                finishAdminPost($message, 'success');
             } catch (PDOException $e) {
-                $message = 'Error saving book. Please try again.';
-                $message_type = 'error';
                 error_log('Book save error: ' . $e->getMessage());
+                finishAdminPost('Error saving book. Please try again.', 'error', $edit_id > 0 ? $edit_id : null);
             }
         }
     } elseif (isset($_POST['book_action'], $_POST['book_id'])) {
@@ -74,11 +138,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $is_archived = $book_action === 'archive' ? 1 : 0;
                 $stmt = $pdo->prepare('UPDATE books SET is_archived = ? WHERE id = ?');
                 $stmt->execute([$is_archived, $target_id]);
-                $message = $book_action === 'archive' ? 'Book archived successfully!' : 'Book restored successfully!';
-                $message_type = 'success';
+                finishAdminPost(
+                    $book_action === 'archive' ? 'Book archived successfully!' : 'Book restored successfully!',
+                    'success'
+                );
             } catch (PDOException $e) {
-                $message = 'Error updating book status.';
-                $message_type = 'error';
+                finishAdminPost('Error updating book status.', 'error');
             }
         }
     }
@@ -184,10 +249,13 @@ try {
             </div>
             
             <!-- Add/Edit Book Form -->
-            <div id="bookForm" style="display: <?php echo $edit_book ? 'block' : 'none'; ?>; margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+            <div id="bookForm" style="display: <?php echo ($edit_book || $show_add_form) ? 'block' : 'none'; ?>; margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
                 <h3><?php echo $edit_book ? 'Edit Book' : 'Add New Book'; ?></h3>
-                <form method="POST" action="">
+                <form method="POST" action="<?php echo url('admin/dashboard.php'); ?>" enctype="multipart/form-data">
                     <?php echo csrfField(); ?>
+                    <?php if (!empty($show_archived)): ?>
+                        <input type="hidden" name="show_archived" value="1">
+                    <?php endif; ?>
                     <input type="hidden" name="edit_id" value="<?php echo $edit_book ? (int) $edit_book['id'] : ''; ?>">
                     
                     <div class="form-group">
@@ -237,11 +305,26 @@ try {
                         <input type="number" id="available_copies" name="available_copies" required min="0" 
                                value="<?php echo $edit_book ? $edit_book['available_copies'] : 1; ?>">
                     </div>
+
+                    <div class="form-group">
+                        <label for="thumbnail">Cover thumbnail (JPG, PNG, GIF, WebP — max 2 MB):</label>
+                        <input type="file" id="thumbnail" name="thumbnail" accept="image/jpeg,image/png,image/gif,image/webp">
+                        <?php if ($edit_book && !empty($edit_book['image_url'])): ?>
+                            <div class="thumbnail-preview" style="margin-top: 12px;">
+                                <img src="<?php echo htmlspecialchars(bookCoverUrl($edit_book['image_url']), ENT_QUOTES, 'UTF-8'); ?>"
+                                     alt="Current cover" style="max-width: 120px; max-height: 160px; border-radius: 4px; display: block;">
+                                <label style="display: block; margin-top: 8px;">
+                                    <input type="checkbox" name="remove_thumbnail" value="1">
+                                    Remove current cover
+                                </label>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                     
                     <button type="submit" name="save_book" class="btn btn-primary">
                         <?php echo $edit_book ? 'Update Book' : 'Add Book'; ?>
                     </button>
-                    <button type="button" onclick="hideForm()" class="btn btn-secondary">Cancel</button>
+                    <button type="button" onclick="cancelBookForm()" class="btn btn-secondary">Cancel</button>
                 </form>
             </div>
             
@@ -253,6 +336,7 @@ try {
                     <thead>
                         <tr>
                             <th>ID</th>
+                            <th>Cover</th>
                             <th>Title</th>
                             <th>Author</th>
                             <th>Category</th>
@@ -266,6 +350,14 @@ try {
                         <?php foreach ($books as $book): ?>
                             <tr>
                                 <td><?php echo $book['id']; ?></td>
+                                <td>
+                                    <?php if (!empty($book['image_url'])): ?>
+                                        <img src="<?php echo htmlspecialchars(bookCoverUrl($book['image_url']), ENT_QUOTES, 'UTF-8'); ?>"
+                                             alt="" class="book-thumb-admin">
+                                    <?php else: ?>
+                                        <span class="book-thumb-admin book-thumb-admin--empty">—</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo htmlspecialchars($book['title']); ?></td>
                                 <td><?php echo htmlspecialchars($book['author']); ?></td>
                                 <td><?php echo htmlspecialchars($book['category_name'] ?? 'N/A'); ?></td>
@@ -280,18 +372,31 @@ try {
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <a href="?action=edit&id=<?php echo $book['id']; ?>" class="btn btn-primary btn-small">Edit</a>
+                                        <?php
+                                        $editQuery = ['action' => 'edit', 'id' => (int) $book['id']];
+                                        if (!empty($show_archived)) {
+                                            $editQuery['show_archived'] = 1;
+                                        }
+                                        ?>
+                                        <a href="<?php echo url('admin/dashboard.php') . '?' . http_build_query($editQuery); ?>"
+                                           class="btn btn-primary btn-small">Edit</a>
                                         <?php if ($book['is_archived']): ?>
-                                            <form method="POST" style="display:inline">
+                                            <form method="POST" action="<?php echo url('admin/dashboard.php'); ?>" style="display:inline">
                                                 <?php echo csrfField(); ?>
+                                                <?php if (!empty($show_archived)): ?>
+                                                    <input type="hidden" name="show_archived" value="1">
+                                                <?php endif; ?>
                                                 <input type="hidden" name="book_action" value="restore">
                                                 <input type="hidden" name="book_id" value="<?php echo (int) $book['id']; ?>">
                                                 <button type="submit" class="btn btn-success btn-small">Restore</button>
                                             </form>
                                         <?php else: ?>
-                                            <form method="POST" style="display:inline"
+                                            <form method="POST" action="<?php echo url('admin/dashboard.php'); ?>" style="display:inline"
                                                   onsubmit="return confirm('Are you sure you want to archive this book?');">
                                                 <?php echo csrfField(); ?>
+                                                <?php if (!empty($show_archived)): ?>
+                                                    <input type="hidden" name="show_archived" value="1">
+                                                <?php endif; ?>
                                                 <input type="hidden" name="book_action" value="archive">
                                                 <input type="hidden" name="book_id" value="<?php echo (int) $book['id']; ?>">
                                                 <button type="submit" class="btn btn-danger btn-small">Archive</button>
@@ -323,10 +428,13 @@ try {
         function hideForm() {
             document.getElementById('bookForm').style.display = 'none';
         }
-        
-        <?php if ($edit_book): ?>
-            document.getElementById('bookForm').style.display = 'block';
-        <?php endif; ?>
+
+        function cancelBookForm() {
+            window.location.href = <?php echo json_encode(
+                url('admin/dashboard.php') . (!empty($show_archived) ? '?show_archived=1' : ''),
+                JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+            ); ?>;
+        }
     </script>
 </body>
 </html>

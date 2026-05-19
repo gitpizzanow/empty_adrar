@@ -309,6 +309,38 @@ table tr:nth-child(even) {
     background: #eee;
     border-bottom: 1px solid #ddd;
     font-size: 0.8rem;
+    overflow: hidden;
+}
+
+.book-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.book-image--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+}
+
+.book-thumb-admin {
+    width: 48px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: #eee;
+    vertical-align: middle;
+}
+
+.book-thumb-admin--empty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    color: #888;
 }
 
 .book-info {

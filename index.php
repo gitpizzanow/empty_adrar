@@ -100,9 +100,7 @@ try {
                     <div class="books-grid">
                         <?php foreach ($featured_books as $book): ?>
                             <div class="book-card">
-                                <div class="book-image" style="display: flex; align-items: center; justify-content: center; color: #999;">
-                                    No Cover
-                                </div>
+                                <?php include 'includes/book_cover.php'; ?>
                                 <div class="book-info">
                                     <div class="book-title"><?php echo htmlspecialchars($book['title']); ?></div>
                                     <div class="book-author">by <?php echo htmlspecialchars($book['author']); ?></div>

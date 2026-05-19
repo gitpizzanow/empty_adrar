@@ -1,1 +1,3 @@
 config/database.local.php
+assets/uploads/books/*
+!assets/uploads/books/.gitkeep

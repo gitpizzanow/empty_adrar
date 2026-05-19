@@ -14,7 +14,7 @@ A university project for a second-year computer science course - a dynamic websi
 ### Admin Features
 - **Dashboard**: Overview of system statistics (books, users, reservations)
 - **CRUD Operations**: Add, edit, view, and archive books
-- **Book Management**: Manage book categories, copies, and availability
+- **Book Management**: Manage book categories, copies, availability, and cover thumbnails
 
 ### Security Features
 - **Password Hashing**: Uses `password_hash()` for secure password storage
@@ -179,9 +179,9 @@ The system uses the following tables:
 - Ensure cookies are enabled in your browser
 - Check PHP session configuration
 
-**Images Not Displaying**
-- The system uses emoji icons for simplicity
-- To add real images, update the `image_url` field in the books table
+**Book cover thumbnails**
+- Admin Dashboard → Add/Edit Book → **Cover thumbnail** (JPG, PNG, GIF, WebP, max 2 MB)
+- Files are stored in `assets/uploads/books/` and shown on the home and browse pages
 
 ## Future Enhancements
 
