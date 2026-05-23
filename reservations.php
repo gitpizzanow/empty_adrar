@@ -125,12 +125,12 @@ try {
                                 
                                 <?php if ($book['available_copies'] > 0): ?>
                                     <button type="button"
-                                            onclick="reserveBook(<?php echo (int) $book['id']; ?>, <?php echo json_encode($book['title'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)"
-                                            class="btn btn-primary btn-small" style="width: 100%; margin-top: 10px;">
+                                            onclick='reserveBook(<?php echo (int) $book['id']; ?>, <?php echo json_encode($book['title'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)'
+                                            class="btn btn-primary btn-small" style="width: 100%;">
                                         Reserve
                                     </button>
                                 <?php else: ?>
-                                    <button disabled class="btn btn-secondary btn-small" style="width: 100%; margin-top: 10px;">
+                                    <button disabled class="btn btn-secondary btn-small" style="width: 100%;">
                                         Not Available
                                     </button>
                                 <?php endif; ?>
@@ -146,32 +146,67 @@ try {
     
     <?php include 'includes/footer.php'; ?>
     
+    <div id="confirmModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-icon">&#128214;</div>
+            <div class="modal-title">Confirm Reservation</div>
+            <div class="modal-body" id="confirmMessage"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
+                <button class="btn btn-primary" id="confirmOk">Yes, Reserve</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const csrfToken = <?php echo json_encode(csrfToken(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
         const reserveUrl = <?php echo json_encode(url('process_reservation.php'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
 
+        let pendingReservation = null;
+
         function reserveBook(bookId, bookTitle) {
-            if (confirm('Are you sure you want to reserve "' + bookTitle + '"?')) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = reserveUrl;
-
-                const fields = {
-                    book_id: bookId,
-                    csrf_token: csrfToken
-                };
-                for (const [name, value] of Object.entries(fields)) {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = name;
-                    input.value = value;
-                    form.appendChild(input);
-                }
-
-                document.body.appendChild(form);
-                form.submit();
-            }
+            pendingReservation = { bookId, bookTitle };
+            document.getElementById('confirmMessage').textContent = 'Are you sure you want to reserve "' + bookTitle + '"?';
+            document.getElementById('confirmModal').style.display = 'flex';
         }
+
+        function submitReservation() {
+            if (!pendingReservation) return;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = reserveUrl;
+
+            const fields = {
+                book_id: pendingReservation.bookId,
+                csrf_token: csrfToken
+            };
+            for (const [name, value] of Object.entries(fields)) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = value;
+                form.appendChild(input);
+            }
+
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        document.getElementById('confirmOk').addEventListener('click', function() {
+            submitReservation();
+        });
+
+        document.getElementById('confirmCancel').addEventListener('click', function() {
+            document.getElementById('confirmModal').style.display = 'none';
+            pendingReservation = null;
+        });
+
+        document.getElementById('confirmModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                this.style.display = 'none';
+                pendingReservation = null;
+            }
+        });
     </script>
 </body>
 </html>

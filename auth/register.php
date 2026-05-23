@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("INSERT INTO users (email, phone, password, full_name, role) VALUES (?, ?, ?, ?, 'user')");
                 $stmt->execute([$email, $phone, $password_hash, $full_name]);
                 $success = 'Registration successful! Redirecting to login...';
-                header('Refresh: 2; url=' . url('auth/login.php'));
+                header('Refresh: 1; url=' . url('auth/login.php'));
             }
         } catch (PDOException $e) {
             $error = 'Registration failed. Please try again.';

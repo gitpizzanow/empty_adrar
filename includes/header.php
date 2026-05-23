@@ -8,7 +8,7 @@ require_once dirname(__DIR__) . '/config/auth.php';
             $current_page = basename($_SERVER['PHP_SELF']);
             if ($current_page !== 'index.php'):
             ?>
-                <a href="javascript:history.back()" class="back-button" title="Go Back">&larr; Back</a>
+                <a href="<?php echo url('index.php'); ?>" class="back-button">&larr; Back</a>
             <?php endif; ?>
             <div class="logo">
                 <span>Book Reservation System</span>
